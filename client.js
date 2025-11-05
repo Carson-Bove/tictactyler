@@ -130,6 +130,25 @@ socket.on('game-reset', (data) => {
     const turnName = (currentTurn === playerRole) ? 'Your' : opponentName + "'s";
     statusDisplay.textContent = `New Game! It is ${turnName} turn (${currentTurn}).`;
 });
+
+socket.on('opponent-disconnected', (data) => {
+    // 1. Show the message
+    alert(data.message); 
+    
+    // 2. Reset the client view to the lobby
+    resetGame();
+    gameWrapper.style.display = 'none';
+    lobby.style.display = 'block';
+
+    // 3. Prepare for re-queueing
+    playerName = data.name; // Use the name confirmed by the server
+    nameInput.value = playerName; // Display the name in the input field
+    
+    statusDisplay.textContent = `Re-joining queue for ${playerName}...`;
+    
+    // CRITICAL: Re-emit the request-join to find a new game
+    socket.emit('request-join', { name: playerName });
+});
 // ... (Rest of game-finished, game-reset, player-disconnected logic remains the same)
 
 // =========================================================
