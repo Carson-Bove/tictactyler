@@ -1,6 +1,6 @@
 // client.js - Rewritten for server-controlled turn management
 
-const socket = io('http://localhost:3000'); // Connect to your Node.js server
+const socket = io(); // Connect to your Node.js server
 const cells = document.querySelectorAll('.cell');
 const statusDisplay = document.querySelector('h1');
 const resetButton = document.getElementById('reset-button'); // Assumes you added this button
