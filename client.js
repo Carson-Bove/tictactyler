@@ -1,145 +1,146 @@
-// client.js - Rewritten for server-controlled turn management
+// client.js - REVISED FOR ROOMS AND NAMES
 
-const socket = io(); // Connect to your Node.js server
+const socket = io();
 const cells = document.querySelectorAll('.cell');
+// New elements
+const lobby = document.getElementById('lobby');
+const nameInput = document.getElementById('name-input');
+const joinButton = document.getElementById('join-game-button');
+const gameWrapper = document.querySelector('.game-wrapper'); // New element to hide/show game
+const playerXNameDisplay = document.getElementById('player-x-name');
+const playerONameDisplay = document.getElementById('player-o-name');
+
+// Existing elements
 const statusDisplay = document.querySelector('h1');
-const resetButton = document.getElementById('reset-button'); // Assumes you added this button
+const resetButton = document.getElementById('reset-button');
 
 // --- Game State ---
 let playerRole = null; // 'X' or 'O'
+let playerName = null;
+let opponentName = null;
+let roomId = null; // CRITICAL: This links the client to the game on the server
 let boardState = Array(9).fill('');
 let gameActive = false;
-let currentTurn = 'X'; // Should always match the server's tracking
-
-// --- Winning Conditions (Must be defined on client for win check) ---
-const winningConditions = [
-    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
-    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
-    [0, 4, 8], [2, 4, 6]  // Diagonals
-];
+let currentTurn = 'X'; 
+const winningConditions = [ /* ... (existing winning conditions array) ... */ ];
 
 
-// --- Socket Listeners ---
+// --- LOBBY/JOIN GAME LOGIC ---
 
-socket.on('player-role', (role) => {
-    playerRole = role;
-    statusDisplay.textContent = `You are Player ${playerRole}. Waiting for opponent...`;
+joinButton.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (name) {
+        playerName = name;
+        lobby.style.display = 'none'; // Hide the lobby
+        gameWrapper.style.display = 'block'; // Show the game content
+        
+        // Send the player's name and request to join/find a game
+        socket.emit('request-join', { name: playerName });
+        statusDisplay.textContent = `Finding game for ${playerName}...`;
+    } else {
+        alert("Please enter a name to join.");
+    }
 });
 
-socket.on('start-game', (data) => {
+
+// --- SOCKET LISTENERS (ROOM-BASED) ---
+
+// Player X connects and waits
+socket.on('wait-for-opponent', (data) => {
+    playerRole = data.yourRole; // X
+    roomId = data.roomId;
+    playerXNameDisplay.textContent = `You (X): ${data.yourName}`;
+    playerONameDisplay.textContent = `O: Waiting...`;
+    statusDisplay.textContent = `Waiting for an opponent to join Game ${roomId}...`;
+});
+
+
+// Game starts (sent to both X and O)
+socket.on('game-start', (data) => {
     gameActive = true;
-    currentTurn = data.turn; // Should be 'X'
-    statusDisplay.textContent = `Game Start! It is ${currentTurn}'s turn.`;
+    roomId = data.roomId;
+    currentTurn = data.currentTurn;
+    
+    // Set names and roles based on the server's data
+    if (data.yourRole) { // This will only be sent to Player O
+        playerRole = data.yourRole;
+    }
+    
+    // Determine which name is yours and which is your opponent's
+    const opponentRole = (playerRole === 'X' ? 'O' : 'X');
+    
+    playerXNameDisplay.textContent = `${data.playerXName} (X)`;
+    playerONameDisplay.textContent = `${data.playerOName} (O)`;
+    
+    if (playerRole === 'X') {
+        opponentName = data.playerOName;
+    } else {
+        opponentName = data.playerXName;
+    }
+
+    statusDisplay.textContent = `Game Start! ${currentTurn}'s turn. Opponent: ${opponentName}`;
 });
 
-// IMPORTANT: This handles all move updates, whether from you or opponent
+
+// Updated Move Handling: Now requires roomId
 socket.on('move-made', (data) => {
-    // 1. Update board state (Only if the cell is still empty/valid)
+    // ... (rest of the move-made logic is the same)
     if (boardState[data.index] === '') {
         boardState[data.index] = data.player;
         cells[data.index].textContent = data.player;
     }
 
-    // 2. Update turn based on server's NEXT turn instruction
     currentTurn = data.nextTurn; 
-    
-    // 3. Check for win/draw after the move is processed
     const isOver = checkWin(data.player); 
 
     if (!isOver) {
-        statusDisplay.textContent = `It is Player ${currentTurn}'s turn.`;
+        const turnName = (currentTurn === playerRole) ? 'Your' : opponentName + "'s";
+        statusDisplay.textContent = `It is ${turnName} turn (${currentTurn}).`;
     }
 });
 
-socket.on('game-finished', (data) => {
-    gameActive = false;
-    if (data.winner === 'Draw') {
-        statusDisplay.textContent = `Game Over! It's a Draw!`;
-    } else {
-        statusDisplay.textContent = `Game Over! Player ${data.winner} Wins!`;
-    }
-});
-
-socket.on('game-reset', (data) => {
-    resetGame();
-    currentTurn = data.turn; // Should be 'X'
-    gameActive = true;
-    statusDisplay.textContent = `New Game! It is Player ${currentTurn}'s turn.`;
-});
-
-socket.on('player-disconnected', (message) => {
-    gameActive = false;
-    statusDisplay.textContent = message;
-    resetGame();
-});
+// ... (game-finished, game-reset, player-disconnected logic remains similar, 
+// but ensure they reference the updated display elements and state variables)
 
 
-// --- Local Click Handler (Request Move) ---
-
-cells.forEach(cell => {
-    cell.addEventListener('click', handleCellClick);
-});
+// --- LOCAL CLICK HANDLER (Sends Move to Server) ---
 
 function handleCellClick(event) {
     const clickedCellIndex = event.target.getAttribute('data-index');
 
-    // 1. Check local turn and game state BEFORE requesting move
-    if (!gameActive || playerRole !== currentTurn || boardState[clickedCellIndex] !== '') {
-        // If not your turn, game not active, or cell is taken, do nothing.
+    // CRITICAL: Check for roomId now
+    if (!gameActive || playerRole !== currentTurn || boardState[clickedCellIndex] !== '' || !roomId) {
         return;
     }
     
-    // 2. Request the move from the server (NO local board update yet)
-    // The server will validate and broadcast the 'move-made' event back to us.
+    // Send the roomId with the move
     socket.emit('make-move', { 
         index: clickedCellIndex, 
-        player: playerRole 
+        player: playerRole, 
+        roomId: roomId 
     });
 }
 
 
-// --- Game Logic Functions ---
+// --- GAME LOGIC FUNCTIONS (Ensure they use roomId in emits) ---
 
 function checkWin(lastPlayer) {
-    let roundWon = false;
-    let boardFull = !boardState.includes('');
-
-    for (let i = 0; i < winningConditions.length; i++) {
-        const [a, b, c] = winningConditions[i];
-
-        if (boardState[a] === lastPlayer && boardState[a] === boardState[b] && boardState[a] === boardState[c]) {
-            roundWon = true;
-            // Highlight the winning cells
-            cells[a].classList.add('winner');
-            cells[b].classList.add('winner');
-            cells[c].classList.add('winner');
-            break; 
-        }
-    }
+    // ... (checkWin logic remains the same)
 
     if (roundWon || boardFull) {
         const winner = roundWon ? lastPlayer : 'Draw';
-        socket.emit('game-over', { winner: winner });
+        // Send roomId with game-over message
+        socket.emit('game-over', { winner: winner, roomId: roomId });
         return true; 
     }
     
     return false;
 }
 
-function resetGame() {
-    boardState.fill('');
-    cells.forEach(cell => {
-        cell.textContent = '';
-        cell.classList.remove('winner');
-    });
-    // gameActive will be set to true by the 'game-reset' event from the server
-}
-
-// --- Reset Button Handler ---
 resetButton.addEventListener('click', () => {
-    // Only Player X initiates the reset request for simplicity
-    if (playerRole === 'X') { 
-        socket.emit('request-reset');
+    if (playerRole === 'X' && roomId) { 
+        // Send roomId with reset request
+        socket.emit('request-reset', { roomId: roomId });
     } else {
         alert("Only Player X can initiate the reset. Ask your opponent to click 'Play Again'.");
     }

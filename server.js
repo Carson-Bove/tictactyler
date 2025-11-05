@@ -1,113 +1,139 @@
-// server.js - Rewritten to manage turn consistency
+// server.js - REVISED FOR ROOMS AND NAMES
 
 const express = require('express');
-const app = express();
+// ... (rest of the initial setup)
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
-const path = require('path');
 
-const port = 3000;
+// ... (other setup code)
 
-// Setup Socket.IO with CORS for development
-const io = new Server(server, {
-    cors: {
-        origin: "*", 
-        methods: ["GET", "POST"]
-    }
-});
-
-// Serve static files from the frontend directory
-//const FRONTEND_DIR = '/Users/carsonbove/Desktop/TylerTacToe'; // **YOUR SPECIFIC PATH**
+const port = process.env.PORT || 3000;
 app.use(express.static(__dirname)); 
 
-// Game State Management
-let playerSockets = {}; // { socketId: 'X' or 'O' }
-let playerSocketIds = []; // [socketIdX, socketIdO]
-let currentPlayerMarker = 'X'; // The server always tracks whose turn it is
+// --- CENTRAL GAME STATE ---
+let games = {};     // Holds all active games: { roomId: { playerX: socketId, playerO: socketId, names: {X: 'Name1', O: 'Name2'}, turn: 'X', board: ['', ...], state: 'active' } }
+let waitingPlayer = null; // Holds the socket.id of the player waiting for an opponent
+let nextGameId = 1;
 
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
-    
-    // --- Connection and Role Assignment ---
-    if (playerSocketIds.length < 2) {
-        let playerRole;
-        
-        if (playerSocketIds.length === 0) {
-            playerRole = 'X';
-            playerSocketIds.push(socket.id);
-            playerSockets[socket.id] = playerRole;
-        } else if (playerSocketIds.length === 1 && !playerSockets[socket.id]) {
-            playerRole = 'O';
-            playerSocketIds.push(socket.id);
-            playerSockets[socket.id] = playerRole;
+
+    // 1. New Event: Client sends its name and requests to join a game
+    socket.on('request-join', (data) => {
+        const playerName = data.name || 'Guest';
+        let roomId;
+
+        if (waitingPlayer) {
+            // Player 2 found: Start the game with the waiting player (Player X)
+            roomId = waitingPlayer.roomId;
+            const game = games[roomId];
+            
+            // Assign Player O
+            game.playerO = socket.id;
+            game.names.O = playerName;
+            
+            // Join the room and remove the player from the waiting list
+            socket.join(roomId);
+            waitingPlayer = null;
+
+            // Notify both players that the game has started
+            io.to(roomId).emit('game-start', { 
+                playerXName: game.names.X, 
+                playerOName: game.names.O,
+                yourRole: 'O',
+                currentTurn: game.turn,
+                roomId: roomId
+            });
+
+        } else {
+            // Player 1 found: Create a new room and wait for an opponent
+            roomId = 'game-' + (nextGameId++);
+            socket.join(roomId);
+            
+            games[roomId] = {
+                roomId: roomId,
+                playerX: socket.id,
+                playerO: null,
+                names: { X: playerName, O: null },
+                turn: 'X',
+                board: Array(9).fill(''),
+                state: 'waiting'
+            };
+            
+            waitingPlayer = { socketId: socket.id, roomId: roomId };
+
+            // Send initial connection data to Player X
+            socket.emit('wait-for-opponent', { yourRole: 'X', roomId: roomId, yourName: playerName });
         }
-        
-        socket.emit('player-role', playerRole);
-        console.log(`Assigned ${playerRole} to ${socket.id}`);
-        
-        // Start game when both players connect
-        if (playerSocketIds.length === 2) {
-            // Tell all clients the game is starting and X goes first
-            io.emit('start-game', { turn: 'X' });
-            console.log('Two players connected. Game starting! X starts.');
-        }
-        
-    } else {
-        // Server is full
-        socket.emit('wait', 'Server is full. Please wait.');
-        socket.disconnect();
-    }
-    
-    // --- Move Handling (Central Validation) ---
+    });
+
+    // 2. Updated Event: Move Handling (Requires roomId and server game state)
     socket.on('make-move', (data) => {
-        const playerMakingMove = playerSockets[socket.id];
-
-        // 1. Validation Check: Is it this player's turn?
-        if (playerMakingMove !== currentPlayerMarker) {
-            // Optionally, tell the client they tried to move out of turn
-            socket.emit('out-of-turn', 'It is not your turn.');
-            return;
+        const { index, roomId, player } = data;
+        const game = games[roomId];
+        
+        // Validation Checks
+        if (!game || game.state !== 'active' || player !== game.turn) {
+            return; // Ignore if game is over, doesn't exist, or not player's turn
+        }
+        if (game.board[index] !== '') {
+            return; // Ignore if cell is already taken
         }
 
-        // 2. Move is Valid: Update server state and broadcast
-        // The client-side logic will handle checking if the cell is empty.
-        
-        // Broadcast the move and the NEW turn to all clients
-        currentPlayerMarker = (currentPlayerMarker === 'X' ? 'O' : 'X');
-        io.emit('move-made', { 
-            index: data.index, 
-            player: data.player,
-            nextTurn: currentPlayerMarker // IMPORTANT: Tell clients whose turn is NEXT
-        }); 
-        console.log(`Move made by ${data.player} in cell ${data.index}. Next turn: ${currentPlayerMarker}`);
+        // 3. Process Move and Update Turn
+        game.board[index] = player;
+        const nextTurn = (player === 'X' ? 'O' : 'X');
+        game.turn = nextTurn;
+
+        // Broadcast to ONLY the players in this room
+        io.to(roomId).emit('move-made', { 
+            index: index, 
+            player: player,
+            nextTurn: nextTurn 
+        });
+
+        // The client will still check for the win, but they will emit 'game-over'
+    });
+
+    // 4. Update Game Over and Reset
+    socket.on('game-over', (data) => {
+        const game = games[data.roomId];
+        if (game) {
+            game.state = 'finished';
+            io.to(data.roomId).emit('game-finished', data); 
+        }
     });
     
-    // --- Game Over/Reset Handling ---
-    socket.on('game-over', (data) => {
-        io.emit('game-finished', data); 
+    socket.on('request-reset', (data) => {
+        const game = games[data.roomId];
+        if (game) {
+            game.board = Array(9).fill('');
+            game.turn = 'X';
+            game.state = 'active';
+            io.to(data.roomId).emit('game-reset', { turn: 'X' });
+        }
     });
 
-    socket.on('request-reset', () => {
-        currentPlayerMarker = 'X'; // X always starts the new game
-        io.emit('game-reset', { turn: 'X' });
-        console.log('Game reset requested. X starts next.');
-    });
-
-    // --- Disconnection ---
+    // 5. Disconnection Handling
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-        const playerRole = playerSockets[socket.id];
-        
-        if (playerRole) {
-            delete playerSockets[socket.id];
-            playerSocketIds = playerSocketIds.filter(id => id !== socket.id);
-            io.emit('player-disconnected', `${playerRole} disconnected. Game ended.`);
-            console.log(`${playerRole} removed. Player count: ${playerSocketIds.length}`);
+        // Simple logic: find which game they were in and notify the other player
+        for (const roomId in games) {
+            const game = games[roomId];
+            if (game.playerX === socket.id || game.playerO === socket.id) {
+                // Remove the game from the active list
+                delete games[roomId];
+                io.to(roomId).emit('player-disconnected', 'Opponent disconnected. Game ended.');
+                // If the disconnected player was the waiting one, clear the waiting list
+                if (waitingPlayer && waitingPlayer.socketId === socket.id) {
+                    waitingPlayer = null;
+                }
+                return;
+            }
         }
     });
 });
 
 server.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+    console.log(`Server running on port ${port}`);
 });
