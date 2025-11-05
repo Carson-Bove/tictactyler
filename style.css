@@ -1,0 +1,81 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background-color: #2c3e50;
+    color: white;
+    margin: 0;
+}
+
+h1 {
+    margin-bottom: 20px;
+}
+
+.game-container {
+    width: 450px;  /* You can change this */
+    height: 450px; /* You can change this */
+    position: relative;
+    border-radius: 10px;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+
+    /* ==================================================
+      ==> THIS IS THE IMPORTANT PART FOR YOUR IMAGE <==
+      ==================================================
+      Replace 'path-to-your-image.jpg' with the
+      path to your file. 
+      
+      Examples:
+      background-image: url('my-cool-image.png');
+      background-image: url('images/background.jpg');
+    */
+    background-image: url("tyler.jpeg");
+
+    /* These properties make the image look good */
+    background-size: cover;
+    background-position: center;
+}
+
+.game-board {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    /* This creates the 3x3 grid */
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+}
+
+.cell {
+    /* Creates the grid lines on top of the image */
+    border: 3px solid white;
+    cursor: pointer;
+    
+    /* Style for the 'X' and 'O' text */
+    font-size: 5rem;
+    font-weight: bold;
+    color: white;
+    
+    /* Centers the 'X' and 'O' in the cell */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    /* A subtle effect to make cells pop */
+    transition: background-color 0.2s ease;
+}
+
+/* Removes borders from the edges to make 
+   it look like a clean 3x3 grid
+*/
+.cell:nth-child(1), .cell:nth-child(2), .cell:nth-child(3) { border-top: none; }
+.cell:nth-child(7), .cell:nth-child(8), .cell:nth-child(9) { border-bottom: none; }
+.cell:nth-child(1), .cell:nth-child(4), .cell:nth-child(7) { border-left: none; }
+.cell:nth-child(3), .cell:nth-child(6), .cell:nth-child(9) { border-right: none; }
+
+
+.cell:hover {
+    /* Makes the cell slightly dark when you hover */
+    background-color: rgba(0, 0, 0, 0.2);
+}
