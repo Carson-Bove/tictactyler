@@ -3,28 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tic-Tac-Toe</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Tic-Tac-Tyler - Multiplayer</title>
+    <link rel="stylesheet" href="style.css"> 
 </head>
 <body>
 
-    <h1>Tic-Tac-Toe</h1>
-    
-    <div class="game-container">
-        <div class="game-board">
-            <div class="cell" data-index="0"></div>
-            <div class="cell" data-index="1"></div>
-            <div class="cell" data-index="2"></div>
-            <div class="cell" data-index="3"></div>
-            <div class="cell" data-index="4"></div>
-            <div class="cell" data-index="5"></div>
-            <div class="cell" data-index="6"></div>
-            <div class="cell" data-index="7"></div>
-            <div class="cell" data-index="8"></div>
-        </div>
+    <div id="lobby">
+        <h2>Welcome to Tic-Tac-Tyler!</h2>
+        <input type="text" id="name-input" placeholder="Enter your name">
+        <button id="join-game-button">Join Game</button>
     </div>
-<button id="reset-button" style="margin-top: 20px;">Play Again</button>
-<script src="/socket.io/socket.io.js"></script>
-<script src="client.js"></script> </body>
+
+    <div class="game-wrapper" style="display:none;">
+
+        <h1>Finding opponent...</h1>
+
+        <h3 id="player-x-name">X: Player 1</h3>
+        <h3 id="player-o-name">O: Player 2</h3>
+
+        <div class="game-container">
+            <div class="game-board">
+                <div class="cell" data-index="0"></div>
+                <div class="cell" data-index="1"></div>
+                <div class="cell" data-index="2"></div>
+                <div class="cell" data-index="3"></div>
+                <div class="cell" data-index="4"></div>
+                <div class="cell" data-index="5"></div>
+                <div class="cell" data-index="6"></div>
+                <div class="cell" data-index="7"></div>
+                <div class="cell" data-index="8"></div>
+            </div>
+        </div>
+
+        <button id="reset-button" style="margin-top: 20px;">Play Again</button> 
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+
 </body>
 </html>

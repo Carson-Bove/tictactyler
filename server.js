@@ -1,11 +1,16 @@
 // server.js - REVISED FOR ROOMS AND NAMES
 
 const express = require('express');
-// ... (rest of the initial setup)
+const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
-
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 // ... (other setup code)
 
 const port = process.env.PORT || 3000;
