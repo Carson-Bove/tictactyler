@@ -1,58 +1,69 @@
-// server.js - REVISED FOR ROOMS AND NAMES
+// server.js - FINAL CORRECTED VERSION (Targeted Role Assignment)
 
 const express = require('express');
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
+
+// Configure Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: "*",
+        origin: "*", 
         methods: ["GET", "POST"]
     }
 });
-// ... (other setup code)
 
 const port = process.env.PORT || 3000;
+
+// Serve static files
 app.use(express.static(__dirname)); 
 
-// --- CENTRAL GAME STATE ---
-let games = {};     // Holds all active games: { roomId: { playerX: socketId, playerO: socketId, names: {X: 'Name1', O: 'Name2'}, turn: 'X', board: ['', ...], state: 'active' } }
-let waitingPlayer = null; // Holds the socket.id of the player waiting for an opponent
+// --- CENTRAL GAME STATE MANAGEMENT ---
+let games = {};     
+let waitingPlayer = null; 
 let nextGameId = 1;
 
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+    console.log(`User connected: ${socket.id}`);
 
-    // 1. New Event: Client sends its name and requests to join a game
+    // === 1. JOIN GAME REQUEST ===
     socket.on('request-join', (data) => {
         const playerName = data.name || 'Guest';
         let roomId;
 
         if (waitingPlayer) {
-            // Player 2 found: Start the game with the waiting player (Player X)
+            // Player 2 (O) found: Start the game
             roomId = waitingPlayer.roomId;
             const game = games[roomId];
             
-            // Assign Player O
             game.playerO = socket.id;
             game.names.O = playerName;
             
-            // Join the room and remove the player from the waiting list
             socket.join(roomId);
-            waitingPlayer = null;
+            
+            // ***** CRITICAL FIX: ACTIVATE THE GAME STATE *****
+            game.state = 'active'; 
 
-            // Notify both players that the game has started
-            io.to(roomId).emit('game-start', { 
+            // --- Send targeted 'game-start' messages ---
+            
+            const baseGameData = {
                 playerXName: game.names.X, 
                 playerOName: game.names.O,
-                yourRole: 'O',
                 currentTurn: game.turn,
                 roomId: roomId
-            });
+            };
+            
+            // 1. Send specific data to Player O (the connecting socket)
+            socket.emit('game-start', { ...baseGameData, yourRole: 'O' });
+            
+            // 2. Send specific data to Player X (the waiting socket)
+            io.to(waitingPlayer.socketId).emit('game-start', { ...baseGameData, yourRole: 'X' });
+
+            waitingPlayer = null; // Clear waiting list AFTER sending messages
 
         } else {
-            // Player 1 found: Create a new room and wait for an opponent
+            // Player 1 (X) found: Create a new room and wait
             roomId = 'game-' + (nextGameId++);
             socket.join(roomId);
             
@@ -73,35 +84,30 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 2. Updated Event: Move Handling (Requires roomId and server game state)
+    // === 2. MOVE HANDLING (NO CHANGE) ===
     socket.on('make-move', (data) => {
         const { index, roomId, player } = data;
         const game = games[roomId];
         
-        // Validation Checks
-        if (!game || game.state !== 'active' || player !== game.turn) {
-            return; // Ignore if game is over, doesn't exist, or not player's turn
-        }
-        if (game.board[index] !== '') {
-            return; // Ignore if cell is already taken
+        // Validation Checks: Ensures game is active and it's the correct turn
+        if (!game || game.state !== 'active' || player !== game.turn || game.board[index] !== '') {
+            return; 
         }
 
-        // 3. Process Move and Update Turn
+        // Process Move and Update Turn
         game.board[index] = player;
         const nextTurn = (player === 'X' ? 'O' : 'X');
         game.turn = nextTurn;
 
-        // Broadcast to ONLY the players in this room
+        // Broadcast move to ONLY the players in this room
         io.to(roomId).emit('move-made', { 
             index: index, 
             player: player,
             nextTurn: nextTurn 
         });
-
-        // The client will still check for the win, but they will emit 'game-over'
     });
 
-    // 4. Update Game Over and Reset
+    // === 3. GAME OVER & RESET (NO CHANGE) ===
     socket.on('game-over', (data) => {
         const game = games[data.roomId];
         if (game) {
@@ -111,25 +117,26 @@ io.on('connection', (socket) => {
     });
     
     socket.on('request-reset', (data) => {
-        const game = games[data.roomId];
-        if (game) {
-            game.board = Array(9).fill('');
-            game.turn = 'X';
-            game.state = 'active';
-            io.to(data.roomId).emit('game-reset', { turn: 'X' });
-        }
-    });
+    const game = games[data.roomId];
+    if (game && game.playerX === socket.id) { // Only allow Player X (the initiator)
+        game.board = Array(9).fill('');
+        game.turn = 'X';
+        game.state = 'active'; // Critical: Set state back to active
+        
+        // Broadcast the reset signal
+        io.to(data.roomId).emit('game-reset', { turn: 'X' });
+        console.log(`Game ${data.roomId} reset by Player X.`);
+    }
+});
 
-    // 5. Disconnection Handling
+    // === 4. DISCONNECTION HANDLING (NO CHANGE) ===
     socket.on('disconnect', () => {
-        // Simple logic: find which game they were in and notify the other player
         for (const roomId in games) {
             const game = games[roomId];
             if (game.playerX === socket.id || game.playerO === socket.id) {
-                // Remove the game from the active list
+                const disconnectedPlayerName = (game.playerX === socket.id) ? game.names.X : game.names.O;
                 delete games[roomId];
-                io.to(roomId).emit('player-disconnected', 'Opponent disconnected. Game ended.');
-                // If the disconnected player was the waiting one, clear the waiting list
+                io.to(roomId).emit('player-disconnected', `${disconnectedPlayerName}'s opponent disconnected. Game ended.`);
                 if (waitingPlayer && waitingPlayer.socketId === socket.id) {
                     waitingPlayer = null;
                 }

@@ -79,3 +79,13 @@ h1 {
     /* Makes the cell slightly dark when you hover */
     background-color: rgba(0, 0, 0, 0.2);
 }
+/* style.css - Add this section */
+.game-wrapper {
+    /* Ensures the game content is centered vertically and horizontally */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%; /* Use full width */
+    max-width: 500px; /* Optional: Sets a max size for the game */
+}
