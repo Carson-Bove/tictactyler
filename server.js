@@ -18,8 +18,8 @@ const io = new Server(server, {
 });
 
 // Serve static files from the frontend directory
-const FRONTEND_DIR = '/Users/carsonbove/Desktop/TylerTacToe'; // **YOUR SPECIFIC PATH**
-app.use(express.static(FRONTEND_DIR)); 
+//const FRONTEND_DIR = '/Users/carsonbove/Desktop/TylerTacToe'; // **YOUR SPECIFIC PATH**
+app.use(express.static(__dirname)); 
 
 // Game State Management
 let playerSockets = {}; // { socketId: 'X' or 'O' }
